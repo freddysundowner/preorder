@@ -36,7 +36,7 @@ const SUBJECTS = {
   unpaid_cancelled: 'Your order was cancelled', product_cancelled: 'An item in your order was cancelled',
   ready_for_collection: 'Your order is ready for collection', collected: 'Order collected', period_opened: 'Preorders are open',
   order_cancelled: 'Your order was cancelled', status_supplier_dispatching: 'Your order has been dispatched',
-  status_warehouse_received: 'Your order reached our warehouse', status_in_transit: 'Your order is on its way',
+  status_warehouse_received: 'Your order reached our warehouse', status_in_transit: 'Your order is on the way',
 };
 const subjectFor = (t) => `${config.businessName}: ${SUBJECTS[t] || 'Order update'}`;
 

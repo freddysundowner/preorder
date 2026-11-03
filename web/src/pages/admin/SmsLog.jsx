@@ -7,7 +7,7 @@ const TEMPLATE = {
   invoice: 'Invoice', payment_received: 'Payment', closing_reminder: 'Reminder', unpaid_cancelled: 'Cancelled at close',
   product_cancelled: 'Item cancelled', ready_for_collection: 'Ready + pickup code', collected: 'Collected',
   period_opened: 'New round', order_cancelled: 'Order cancelled',
-  status_supplier_dispatching: 'Dispatched', status_warehouse_received: 'At warehouse', status_in_transit: 'In transit',
+  status_supplier_dispatching: 'Dispatched', status_warehouse_received: 'At warehouse', status_in_transit: 'On the way',
 };
 
 export default function SmsLog() {

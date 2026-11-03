@@ -60,7 +60,7 @@ r.get('/overview', staff, ah(async (req, res) => {
     `SELECT p.id, p.name, p.status, p.eta_date,
             (SELECT COUNT(*)::int FROM orders o WHERE o.period_id = p.id AND o.payment_status = 'paid') AS paid_orders
        FROM shipping_periods p
-      WHERE p.status NOT IN ('draft','open','completed') ORDER BY p.closes_at DESC`
+      WHERE p.status NOT IN ('open','completed') ORDER BY p.closes_at DESC`
   );
   res.json({ open, openStats, counts, shipping });
 }));
@@ -220,7 +220,7 @@ r.post('/products', admin, ah(async (req, res) => {
   const periodId = int(req.body.period_id);
   const period = await one('SELECT * FROM shipping_periods WHERE id = $1', [periodId]);
   if (!period) throw bad('Choose a shipping period');
-  if (!['draft', 'open'].includes(period.status)) throw bad('This period is closed; add products to a new period');
+  if (period.status !== 'open') throw bad('This period is closed; add products to a new period');
   const p = productInput(req.body);
   const product = await one(
     `INSERT INTO products (period_id, name, description, price_kes, image_url, min_qty, max_qty)

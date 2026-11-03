@@ -57,9 +57,7 @@ export async function applyPayment(client, { orderId, amount, receipt }) {
 
 // ---------- Period status (the whole batch moves together) ----------
 const SHIPPING_MSG = {
-  supplier_dispatching: (p) => `your ${p} preorder has been dispatched by the supplier.`,
-  warehouse_received: (p) => `your ${p} preorder has been received at the warehouse.`,
-  in_transit: (p) => `your ${p} preorder is in transit.`,
+  in_transit: (p) => `your ${p} preorder is on the way.`,
 };
 
 export async function setPeriodStatus(periodId, newStatus, { etaDate, note, actorId }) {
@@ -73,13 +71,10 @@ export async function setPeriodStatus(periodId, newStatus, { etaDate, note, acto
 
   if (to < from) throw bad(`Cannot move back from "${STAGE_LABELS[period.status]}" to "${STAGE_LABELS[newStatus]}"`);
   if (to === from && !etaChanged && !note) throw bad('Nothing to update');
-  if (from <= 1 && to > 2) throw bad('Close the period for orders before moving to shipping stages');
+  if (from === 0 && to > 1) throw bad('Close the period for orders before moving to shipping stages');
 
   if (newStatus === 'closed' && period.status !== 'closed') {
     await closePeriod(periodId, actorId);
-  } else if (newStatus === 'open' && period.status === 'draft') {
-    // Customers are told by SMS once the opening time arrives (see jobs.js)
-    await pool.query(`UPDATE shipping_periods SET status = 'open' WHERE id = $1`, [periodId]);
   } else {
     await pool.query(
       `UPDATE shipping_periods SET status = $2, eta_date = COALESCE($3, eta_date) WHERE id = $1`,
@@ -95,7 +90,7 @@ export async function setPeriodStatus(periodId, newStatus, { etaDate, note, acto
 
   // Notify paid customers about shipping progress
   const updated = await one('SELECT * FROM shipping_periods WHERE id = $1', [periodId]);
-  if (to >= STAGES.indexOf('supplier_dispatching')) {
+  if (to >= STAGES.indexOf('in_transit')) {
     await notifyShippingUpdate(updated, newStatus, to === from && etaChanged, note);
   }
   return updated;
@@ -142,11 +137,27 @@ async function notifyShippingUpdate(period, status, etaOnly, note) {
   sendSmsLater(orders.map((o) => ({ userId: o.user_id, phone: o.phone, body })), `status_${status}`);
 }
 
+// Once every paid order in a ready round is collected, the round is finished
+async function completeIfAllCollected(periodId, actorId) {
+  const done = await one(
+    `UPDATE shipping_periods SET status = 'completed'
+      WHERE id = $1 AND status = 'ready_for_collection'
+        AND NOT EXISTS (SELECT 1 FROM orders WHERE period_id = $1 AND payment_status = 'paid' AND collected_at IS NULL)
+      RETURNING id`,
+    [periodId]
+  );
+  if (!done) return;
+  await pool.query(
+    `INSERT INTO status_events (period_id, status, note, created_by) VALUES ($1, 'completed', 'All orders collected', $2)`,
+    [periodId, actorId || null]
+  );
+}
+
 // ---------- Closing a period ----------
 export async function closePeriod(periodId, actorId) {
   const cancelled = await tx(async (c) => {
     const { rows: p } = await c.query(`SELECT * FROM shipping_periods WHERE id = $1 FOR UPDATE`, [periodId]);
-    if (!p[0] || !['open', 'draft'].includes(p[0].status)) return [];
+    if (!p[0] || p[0].status !== 'open') return [];
     await c.query(`UPDATE shipping_periods SET status = 'closed' WHERE id = $1`, [periodId]);
     // Unpaid orders are cancelled. Part-paid orders are cancelled and refunded.
     const { rows } = await c.query(
@@ -286,5 +297,6 @@ export async function collectOrder({ orderNo, code, collectedByName, collectedBy
     { userId: o.user_id, phone: o.phone, body: `${biz()}: Order ${o.order_no} was collected by ${who} on ${fmtDate(updated.collected_at)}. Thank you for shopping with us.` },
     'collected'
   );
+  await completeIfAllCollected(o.period_id, actorId);
   return updated;
 }

@@ -55,19 +55,13 @@ export const int = (v) => {
   return Number.isInteger(n) ? n : null;
 };
 
-// Pipeline stages a shipping period moves through after it closes
-export const STAGES = [
-  'draft', 'open', 'closed', 'supplier_dispatching', 'warehouse_received',
-  'in_transit', 'ready_for_collection', 'completed',
-];
+// Stages a shipping period moves through
+export const STAGES = ['open', 'closed', 'in_transit', 'ready_for_collection', 'completed'];
 
 export const STAGE_LABELS = {
-  draft: 'Draft',
   open: 'Open for orders',
   closed: 'Orders closed',
-  supplier_dispatching: 'Supplier dispatching',
-  warehouse_received: 'Received at warehouse',
-  in_transit: 'In transit',
+  in_transit: 'On the way',
   ready_for_collection: 'Ready for collection',
   completed: 'Completed',
 };

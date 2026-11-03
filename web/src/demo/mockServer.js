@@ -7,10 +7,10 @@ const SHOP = 'our Nairobi shop';
 const PAYBILL = '522533';
 export const DEMO_ADMIN_PHONE = '0700000001';
 
-const STAGES = ['draft', 'open', 'closed', 'supplier_dispatching', 'warehouse_received', 'in_transit', 'ready_for_collection', 'completed'];
+const STAGES = ['open', 'closed', 'in_transit', 'ready_for_collection', 'completed'];
 const STAGE_LABELS = {
-  draft: 'Draft', open: 'Open for orders', closed: 'Orders closed', supplier_dispatching: 'Supplier dispatching',
-  warehouse_received: 'Received at warehouse', in_transit: 'In transit', ready_for_collection: 'Ready for collection', completed: 'Completed',
+  open: 'Open for orders', closed: 'Orders closed', in_transit: 'On the way',
+  ready_for_collection: 'Ready for collection', completed: 'Completed',
 };
 
 // ---------- helpers ----------
@@ -128,7 +128,7 @@ function seed() {
   const o1 = product(oct, 'Non-stick cookware set', '7 pieces, induction compatible.', 5800);
   const o2 = product(oct, 'Bluetooth speaker', 'Waterproof, 12-hour battery.', 2600);
   const o3 = product(oct, 'Ladies sandals', 'Sizes 36 to 41, three colours.', 1400);
-  event(oct, 'closed', 38); event(oct, 'supplier_dispatching', 34); event(oct, 'warehouse_received', 27); event(oct, 'in_transit', 22); event(oct, 'ready_for_collection', 2);
+  event(oct, 'closed', 38); event(oct, 'in_transit', 27); event(oct, 'ready_for_collection', 2);
   const ready = [
     order(people[0], oct, [[o1, 1], [o3, 2]], { daysAgo: 45 }),
     order(people[1], oct, [[o2, 2]], { daysAgo: 44 }),
@@ -148,7 +148,7 @@ function seed() {
   const n1 = product(nov, 'Standing fan 16"', 'Three speeds, remote control.', 3900);
   const n2 = product(nov, 'Kids bicycle', 'Ages 5 to 8, training wheels.', 7200, { min_qty: 5 });
   const n3 = product(nov, 'Hair dryer 2000W', 'Two heat settings, cool shot.', 1800);
-  event(nov, 'closed', 16); event(nov, 'supplier_dispatching', 12); event(nov, 'warehouse_received', 8); event(nov, 'in_transit', 3);
+  event(nov, 'closed', 16); event(nov, 'in_transit', 8);
   order(people[4], nov, [[n1, 2]], { daysAgo: 28 });
   order(people[5], nov, [[n2, 1], [n3, 1]], { daysAgo: 25 });
   order(people[0], nov, [[n3, 2]], { daysAgo: 22 });
@@ -236,7 +236,7 @@ function paidActiveOrders(periodId) {
 }
 
 function closePeriod(p, actorId) {
-  if (!['open', 'draft'].includes(p.status)) return;
+  if (p.status !== 'open') return;
   p.status = 'closed';
   const msgs = [];
   for (const o of db.orders.filter((x) => x.period_id === p.id && x.payment_status === 'unpaid')) {
@@ -272,9 +272,7 @@ function remind(p) {
 }
 
 const SHIPPING_MSG = {
-  supplier_dispatching: (n) => `your ${n} preorder has been dispatched by the supplier.`,
-  warehouse_received: (n) => `your ${n} preorder has been received at the warehouse.`,
-  in_transit: (n) => `your ${n} preorder is in transit.`,
+  in_transit: (n) => `your ${n} preorder is on the way.`,
 };
 
 function setPeriodStatus(p, newStatus, { etaDate, note, actorId }) {
@@ -284,7 +282,7 @@ function setPeriodStatus(p, newStatus, { etaDate, note, actorId }) {
   const etaChanged = etaDate !== undefined && (etaDate || null) !== (p.eta_date || null);
   if (to < from) throw bad(`Cannot move back from "${STAGE_LABELS[p.status]}" to "${STAGE_LABELS[newStatus]}"`);
   if (to === from && !etaChanged && !note) throw bad('Nothing to update');
-  if (from <= 1 && to > 2) throw bad('Close the period for orders before moving to shipping stages');
+  if (from === 0 && to > 1) throw bad('Close the period for orders before moving to shipping stages');
 
   const prev = p.status;
   if (newStatus === 'closed' && p.status !== 'closed') closePeriod(p, actorId);
@@ -294,7 +292,7 @@ function setPeriodStatus(p, newStatus, { etaDate, note, actorId }) {
   insert('events', { period_id: p.id, status: newStatus, note: note || null, eta_date: p.eta_date || null, created_by: actorId, created_at: now() });
   audit(actorId, 'period.status', 'period', p.id, { from: prev, to: newStatus, etaDate, note });
 
-  if (to < STAGES.indexOf('supplier_dispatching')) return;
+  if (to < STAGES.indexOf('in_transit')) return;
   const orders = paidActiveOrders(p.id);
   if (newStatus === 'ready_for_collection') {
     sms(orders.map((o) => {
@@ -431,7 +429,7 @@ route('PATCH', '/auth/me', ({ user, body }) => {
 route('GET', '/periods/current', { open: true }, () => {
   const period = currentPeriod();
   if (!period) {
-    const next = db.periods.filter((p) => ['open', 'draft'].includes(p.status) && new Date(p.opens_at) > Date.now())
+    const next = db.periods.filter((p) => p.status === 'open' && new Date(p.opens_at) > Date.now())
       .sort((a, b) => a.opens_at.localeCompare(b.opens_at))[0] || null;
     return { period: null, products: [], next };
   }
@@ -559,7 +557,7 @@ route('GET', '/admin/overview', S, () => {
       awaiting_collection: db.orders.filter((o) => o.pickup_code && !o.collected_at && o.payment_status === 'paid').length,
       customers: db.users.filter((u) => u.role === 'customer').length,
     },
-    shipping: db.periods.filter((p) => !['draft', 'open', 'completed'].includes(p.status))
+    shipping: db.periods.filter((p) => !['open', 'completed'].includes(p.status))
       .sort((a, b) => b.closes_at.localeCompare(a.closes_at))
       .map((p) => ({ id: p.id, name: p.name, status: p.status, eta_date: p.eta_date,
         paid_orders: db.orders.filter((o) => o.period_id === p.id && o.payment_status === 'paid').length })),
@@ -584,7 +582,7 @@ route('GET', '/admin/periods', A, () => ({
   }),
 }));
 route('POST', '/admin/periods', A, ({ user, body }) => {
-  const p = insert('periods', { ...periodInput(body), status: 'draft', reminder_sent_at: null, announced_at: null, created_by: user.id, created_at: now() });
+  const p = insert('periods', { ...periodInput(body), status: 'open', reminder_sent_at: null, announced_at: null, created_by: user.id, created_at: now() });
   audit(user.id, 'period.created', 'period', p.id, { name: p.name });
   return { period: p };
 });
@@ -659,7 +657,7 @@ function productInput(b) {
 route('POST', '/admin/products', A, ({ user, body }) => {
   const p = periodById(int(body.period_id));
   if (!p) throw bad('Choose a shipping period');
-  if (!['draft', 'open'].includes(p.status)) throw bad('This period is closed; add products to a new period');
+  if (p.status !== 'open') throw bad('This period is closed; add products to a new period');
   const pr = insert('products', { period_id: p.id, ...productInput(body), status: 'active', created_at: now() });
   audit(user.id, 'product.created', 'product', pr.id, { name: pr.name });
   return { product: pr };
@@ -783,6 +781,11 @@ route('POST', '/admin/collections', S, ({ user, body }) => {
   const ph = normalizePhone(body.collected_by_phone) || null;
   Object.assign(o, { collected_at: now(), collected_by_name: name, collected_by_phone: ph, released_by: user.id });
   audit(user.id, 'order.collected', 'order', o.id, { name });
+  const pp = db.periods.find((x) => x.id === o.period_id);
+  if (pp.status === 'ready_for_collection' && !db.orders.some((x) => x.period_id === pp.id && x.payment_status === 'paid' && !x.collected_at)) {
+    pp.status = 'completed';
+    insert('events', { period_id: pp.id, status: 'completed', note: 'All orders collected', eta_date: pp.eta_date || null, created_by: user.id, created_at: now() });
+  }
   const c = userById(o.user_id);
   sms({ userId: c.id, phone: c.phone, body: `${BIZ}: Order ${o.order_no} was collected by ${ph ? `${name}, ${displayPhone(ph)}` : name} on ${fmtDate(o.collected_at)}. Thank you for shopping with us.` }, 'collected');
   return { order: o };

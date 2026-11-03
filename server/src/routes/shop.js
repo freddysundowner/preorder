@@ -37,7 +37,7 @@ r.get('/periods/current', ah(async (req, res) => {
   if (!period) {
     const next = await one(
       `SELECT id, name, opens_at, closes_at FROM shipping_periods
-        WHERE status IN ('open','draft') AND opens_at > now() ORDER BY opens_at LIMIT 1`
+        WHERE status = 'open' AND opens_at > now() ORDER BY opens_at LIMIT 1`
     );
     return res.json({ period: null, products: [], next });
   }

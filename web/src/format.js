@@ -30,16 +30,13 @@ export const fromLocalInput = (v) => (v ? new Date(v + ':00+03:00').toISOString(
 export const STAGES = [
   { key: 'open', label: 'Ordering open', short: 'Ordered' },
   { key: 'closed', label: 'Orders closed', short: 'Closed' },
-  { key: 'supplier_dispatching', label: 'Supplier dispatching', short: 'Dispatched' },
-  { key: 'warehouse_received', label: 'Received at warehouse', short: 'Warehouse' },
-  { key: 'in_transit', label: 'In transit', short: 'In transit' },
+  { key: 'in_transit', label: 'On the way', short: 'On the way' },
   { key: 'ready_for_collection', label: 'Ready for collection', short: 'Ready' },
 ];
 
 export const STAGE_LABEL = {
-  draft: 'Draft', open: 'Open for orders', closed: 'Orders closed',
-  supplier_dispatching: 'Supplier dispatching', warehouse_received: 'Received at warehouse',
-  in_transit: 'In transit', ready_for_collection: 'Ready for collection', completed: 'Completed',
+  open: 'Open for orders', closed: 'Orders closed',
+  in_transit: 'On the way', ready_for_collection: 'Ready for collection', completed: 'Completed',
 };
 
 export const PAYMENT_LABEL = {

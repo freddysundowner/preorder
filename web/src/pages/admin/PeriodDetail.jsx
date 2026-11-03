@@ -7,24 +7,18 @@ import { kes, date, toLocalInput, fromLocalInput, STAGE_LABEL } from '../../form
 import ImageField from '../../components/ImageField.jsx';
 import { Err, Ok, Loading, ProductImage } from '../../components/ui.jsx';
 
-const FLOW = ['draft', 'open', 'closed', 'supplier_dispatching', 'warehouse_received', 'in_transit', 'ready_for_collection', 'completed'];
+const FLOW = ['open', 'closed', 'in_transit', 'ready_for_collection', 'completed'];
 const NEXT_ACTION = {
-  draft: 'Open for orders',
   open: 'Close orders now',
-  closed: 'Mark supplier dispatching',
-  supplier_dispatching: 'Mark received at warehouse',
-  warehouse_received: 'Mark in transit',
-  in_transit: 'Mark ready for collection',
+  closed: 'Mark goods on the way',
+  in_transit: 'Goods arrived: ready for pickup',
   ready_for_collection: 'Mark round completed',
 };
 const NEXT_WARNING = {
-  open: 'Customers will be able to order once the opening time arrives, and opted-in customers get an SMS.',
   closed: 'Unpaid orders will be cancelled and those customers told by SMS.',
-  supplier_dispatching: 'Every paid customer in this round gets an SMS.',
-  warehouse_received: 'Every paid customer in this round gets an SMS.',
   in_transit: 'Every paid customer in this round gets an SMS.',
   ready_for_collection: 'Each paid customer gets an SMS with their own pickup code.',
-  completed: 'No SMS is sent. Use this once collections are done.',
+  completed: 'No SMS is sent. The round also finishes by itself once every paid order is collected.',
 };
 
 const blankProduct = { name: '', description: '', price_kes: '', image_url: '', min_qty: '', max_qty: '' };
@@ -67,7 +61,7 @@ export default function PeriodDetail() {
   const { period, products, events, stats } = data;
   const idx = FLOW.indexOf(period.status);
   const next = FLOW[idx + 1];
-  const canEditProducts = ['draft', 'open'].includes(period.status);
+  const canEditProducts = period.status === 'open';
   const etaValue = eta ?? (period.eta_date || '');
 
   const act = (fn, okMsg) => { setMsg(null); return run(async () => { await fn(); setMsg(okMsg); await reload(); }); };

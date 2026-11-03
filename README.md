@@ -36,7 +36,7 @@ Log in with the `ADMIN_PHONE` number. In development (`SMS_PROVIDER=console`) th
 
 1. **Build the web app:** `cd web && npm run build`. The API serves `web/dist` automatically, so you only need to run one process: `cd server && npm start`.
 2. **Host:** any VPS or Railway/Render. Put it behind HTTPS (Safaricom requires HTTPS callback URLs). Set `PUBLIC_API_URL` to the public address and `WEB_ORIGIN` to the same address.
-3. **Database:** migrations run automatically when the API starts.
+3. **Database:** migrations run automatically when the API starts (`003_simplify_stages.sql` converts old Draft and shipping stages).
 4. **SMS (Africa's Talking):** set `SMS_PROVIDER=africastalking`, `AT_USERNAME`, `AT_API_KEY`, `AT_SANDBOX=false` and `AT_SENDER_ID` once your sender ID is approved. Set the delivery-report URL in the Africa's Talking dashboard to `https://YOUR-DOMAIN/api/webhooks/sms/delivery`.
 5. **M-Pesa (Daraja):** set `MPESA_MODE=sandbox` first, then `production`, with your consumer key/secret, shortcode, passkey and a random `MPESA_CALLBACK_SECRET`. Use `CustomerBuyGoodsOnline` as `MPESA_TRANSACTION_TYPE` if you use a Till.
 6. **Paybill payments made from the M-Pesa menu:** register the C2B URLs once by calling `POST /api/admin/mpesa/register-c2b` as an admin (for example with curl and your login token). Customers use the order number (e.g. `PO1001`) as the account number. Payments with a wrong account number land in Admin → Payments → Unmatched, where you apply them to the right order.
@@ -46,14 +46,17 @@ Log in with the `ADMIN_PHONE` number. In development (`SMS_PROVIDER=console`) th
 
 **A shipping round** has products, an opening time and a closing time. Its status moves the whole batch:
 
-Draft → Open for orders → Orders closed → Supplier dispatching → Received at warehouse → In transit → Ready for collection → Completed
+Open for orders → Orders closed → On the way → Ready for collection → Completed
 
-- Opening a round: customers can order once the opening time arrives, and opted-in customers get an SMS.
+- A new round is open as soon as you create it. Customers can order from the opening time, and opted-in customers get an SMS then.
 - 24 hours before closing, customers with unpaid orders or full carts get a reminder.
 - At closing time the round closes automatically. Unpaid orders are cancelled (part-paid ones are marked for refund) and those customers are told by SMS.
-- Each shipping stage sends one bulk SMS to every paid customer, with the expected arrival date if set. Changing only the arrival date also notifies them.
-- "Ready for collection" sends each paid customer their own 6-digit pickup code.
+- **On the way** (one button, optional arrival date) sends one bulk SMS to every paid customer. Changing only the arrival date also notifies them.
+- **Ready for collection** sends each paid customer their own 6-digit pickup code.
+- The round completes by itself once every paid order is collected.
 - At the collection desk, staff search by phone or order number, enter the code, record who collected, and the customer gets a confirmation SMS.
+
+So a paid customer gets three SMS: payment received, goods on the way, ready to collect with their code.
 
 **Payments:** M-Pesa STK push from the order page, Paybill from the M-Pesa menu (account = order number), or recorded manually by an admin. Payments are matched to orders automatically and each M-Pesa code is only counted once. Overpayments and payments on cancelled orders are recorded as refunds due.
 

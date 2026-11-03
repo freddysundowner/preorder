@@ -64,7 +64,7 @@ export default function Periods() {
                 {data.periods.map((p) => (
                   <tr key={p.id} className="clickable" onClick={() => nav(`/admin/periods/${p.id}`)}>
                     <td><Link to={`/admin/periods/${p.id}`} onClick={(e) => e.stopPropagation()}><b>{p.name}</b></Link></td>
-                    <td><span className={`badge ${p.status === 'open' ? 'badge-ok' : p.status === 'draft' ? '' : 'badge-blue'}`}>{STAGE_LABEL[p.status]}</span></td>
+                    <td><span className={`badge ${p.status === 'open' ? 'badge-ok' : 'badge-blue'}`}>{STAGE_LABEL[p.status]}</span></td>
                     <td>{date(p.opens_at)}</td>
                     <td>{date(p.closes_at)}</td>
                     <td className="num">{p.product_count}</td>
