@@ -28,6 +28,7 @@ r.get('/info', (req, res) => {
     storeHeadline: config.storeHeadline,
     storeTagline: config.storeTagline,
     paybillNumber: config.paybillNumber,
+    deliveryFeeKes: config.deliveryFeeKes,
     paymentProvider: config.payments.provider,
   });
 });
@@ -96,11 +97,19 @@ r.post('/orders/checkout', requireAuth, ah(async (req, res) => {
   if (!cart.period) throw bad('Orders are closed right now');
   if (!cart.items.length) throw bad('Your cart is empty');
 
+  const delivery = req.body?.fulfilment === 'delivery';
+  const address = String(req.body?.delivery_address || '').trim().slice(0, 300);
+  const deliveryPhone = normalizePhone(req.body?.delivery_phone) || req.user.phone;
+  if (delivery && address.length < 5) throw bad('Enter your delivery address');
+  const fee = delivery ? config.deliveryFeeKes : 0;
+
   const order = await tx(async (c) => {
     const orderNo = await nextOrderNo(c);
     const { rows } = await c.query(
-      `INSERT INTO orders (order_no, user_id, period_id, total_kes) VALUES ($1,$2,$3,$4) RETURNING *`,
-      [orderNo, req.user.id, cart.period.id, cart.total]
+      `INSERT INTO orders (order_no, user_id, period_id, total_kes, fulfilment, delivery_address, delivery_phone, delivery_fee_kes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [orderNo, req.user.id, cart.period.id, cart.total + fee, delivery ? 'delivery' : 'pickup',
+       delivery ? address : null, delivery ? deliveryPhone : null, fee]
     );
     for (const it of cart.items) {
       await c.query(
@@ -131,8 +140,14 @@ r.get('/orders', requireAuth, ah(async (req, res) => {
       WHERE o.user_id = $1 ORDER BY o.id DESC`,
     [req.user.id]
   );
-  res.json({ orders: orders.map(({ pickup_code_hash, ...o }) => ({ ...o, ready: !!pickup_code_hash })) });
+  res.json({ orders: orders.map(({ pickup_code_hash, ...o }) => ({ ...o, ready: isReady(o, pickup_code_hash) })) });
 }));
+
+// Pickup orders are ready once they have a code; delivery orders once the round is ready (out for delivery)
+export const isReady = (o, pickupCodeHash) =>
+  o.fulfilment === 'delivery'
+    ? ['ready_for_collection', 'completed'].includes(o.period_status)
+    : !!pickupCodeHash;
 
 export async function orderDetail(where, params) {
   const order = await one(
@@ -151,7 +166,7 @@ export async function orderDetail(where, params) {
            WHERE period_id = $1 AND created_at >= $2 ORDER BY id`, [order.period_id, order.created_at]),
   ]);
   const { pickup_code_hash, ...rest } = order;
-  return { ...rest, ready: !!pickup_code_hash, items, payments, events };
+  return { ...rest, ready: isReady(rest, pickup_code_hash), items, payments, events };
 }
 
 r.get('/orders/:id', requireAuth, ah(async (req, res) => {

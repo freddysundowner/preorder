@@ -16,6 +16,8 @@ export const config = {
   storeHeadline: env('STORE_HEADLINE', 'Preorder now. Collect when it lands.'),
   storeTagline: env('STORE_TAGLINE', 'Pay with M-Pesa, follow your order by SMS, and pick it up with a code.'),
   paybillNumber: env('PAYBILL_NUMBER', '000000'),
+  // Added to the total when a customer chooses delivery instead of pickup (0 = free delivery)
+  deliveryFeeKes: Number(env('DELIVERY_FEE_KES', 0)) || 0,
   email: {
     enabled: env('EMAIL_ENABLED', 'false') === 'true',
     brevoApiKey: env('BREVO_API_KEY', ''),

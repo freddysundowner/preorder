@@ -643,3 +643,11 @@ label.check small { display: block; color: var(--ink-3); font-weight: 400; }
 .oc-foot { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid #f0f0f0; margin-top: 14px; padding-top: 12px; }
 .oc .route { margin: 14px 0 4px; }
 @media (max-width: 860px) { .acct { grid-template-columns: 1fr; gap: 20px; } .acct-side { position: static; } }
+
+/* pickup / delivery choice at checkout */
+.choice { display: grid; gap: 10px; margin-bottom: 14px; }
+.choice-opt { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.choice-opt.on { border-color: var(--port); box-shadow: 0 0 0 3px var(--port-soft); }
+.choice-opt input { width: auto; margin-top: 4px; }
+.choice-opt b { display: block; }
+.choice-opt small { display: block; color: var(--sf-muted, #666); margin-top: 2px; }

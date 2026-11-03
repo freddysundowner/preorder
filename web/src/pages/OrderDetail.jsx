@@ -105,12 +105,23 @@ export default function OrderDetail() {
           {o.eta_date && !o.collected_at && o.period_status !== 'ready_for_collection' && (
             <div className="eta"><span className="muted">Expected arrival</span><strong>{date(o.eta_date)}</strong></div>
           )}
-          {o.ready && !o.collected_at && (
+          {o.fulfilment === 'delivery' && !o.collected_at && (
+            <div className="pickup" style={{ marginTop: 18 }}>
+              <b>{o.ready ? 'Your order has arrived and is being arranged for delivery.' : 'Delivery to you.'}</b> We will call {fmtPhone(o.delivery_phone || o.customer_phone)}.
+              <div className="small muted">{o.delivery_address}</div>
+            </div>
+          )}
+          {o.fulfilment !== 'delivery' && o.ready && !o.collected_at && (
             <div className="pickup" style={{ marginTop: 18 }}>
               <b>Ready for collection at {info.shopLocation}.</b> Bring the pickup code we sent you by SMS.
             </div>
           )}
-          {o.collected_at && (
+          {o.delivered_at && (
+            <div className="alert alert-ok" style={{ marginTop: 18, marginBottom: 0 }}>
+              Delivered on {date(o.delivered_at, true)} to {o.delivery_address}.
+            </div>
+          )}
+          {o.collected_at && !o.delivered_at && (
             <div className="alert alert-ok" style={{ marginTop: 18, marginBottom: 0 }}>
               Collected on {date(o.collected_at, true)} by {o.collected_by_name}{o.collected_by_phone ? `, ${fmtPhone(o.collected_by_phone)}` : ''}.
             </div>
@@ -134,6 +145,7 @@ export default function OrderDetail() {
             <span className="num">{kes(it.qty * it.unit_price_kes)}</span>
           </div>
         ))}
+        {o.delivery_fee_kes > 0 && <div className="line"><span>Delivery</span><span className="num">{kes(o.delivery_fee_kes)}</span></div>}
         <div className="totals"><b>Total</b><span className="price num">{kes(o.total_kes)}</span></div>
       </section>
 

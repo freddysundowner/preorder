@@ -53,10 +53,11 @@ Open for orders → Orders closed → On the way → Ready for collection → Co
 - At closing time the round closes automatically. Unpaid orders are cancelled (part-paid ones are marked for refund) and those customers are told by SMS.
 - **On the way** (one button, optional arrival date) sends one bulk SMS to every paid customer. Changing only the arrival date also notifies them.
 - **Ready for collection** sends each paid customer their own 6-digit pickup code.
-- The round completes by itself once every paid order is collected.
-- At the collection desk, staff search by phone or order number, enter the code, record who collected, and the customer gets a confirmation SMS.
+- The round completes by itself once every paid order is collected or delivered.
+- **Pickup orders:** at the collection desk, staff search by phone or order number, enter the code, record who collected, and the customer gets a confirmation SMS.
+- **Delivery orders:** the customer gives an address and phone at checkout (and pays `DELIVERY_FEE_KES` if you set one). When the round is ready they get an SMS saying it will be delivered, with no code. Staff open the order in Admin → Orders and press **Mark delivered**, and the customer gets a confirmation SMS. Use the "Deliveries to make" filter to see what is left.
 
-So a paid customer gets three SMS: payment received, goods on the way, ready to collect with their code.
+So a paid customer gets three SMS: payment received, goods on the way, and ready (with a code for pickup, or a delivery notice).
 
 **Payments:** M-Pesa STK push from the order page, Paybill from the M-Pesa menu (account = order number), or recorded manually by an admin. Payments are matched to orders automatically and each M-Pesa code is only counted once. Overpayments and payments on cancelled orders are recorded as refunds due.
 
@@ -76,7 +77,7 @@ These came from assumptions in the plan; confirm them with the client:
 | Customers can cancel until the round closes | `server/src/routes/shop.js` → `/orders/:id/cancel` |
 | Reminder 24 hours before closing | `server/src/jobs.js` |
 | SMS wording | `server/src/services/orders.js` and `server/src/routes/shop.js` |
-| Business name, shop location, Paybill number | `server/.env` |
+| Business name, shop location, Paybill number, delivery fee | `server/.env` |
 
 ## Project layout
 

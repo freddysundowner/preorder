@@ -19,8 +19,12 @@ export default function Checkout() {
   const [failed, setFailed] = useState(null);
   const [slow, setSlow] = useState(false);
   const [amount, setAmount] = useState(0);
+  const [fulfilment, setFulfilment] = useState('pickup');
+  const [address, setAddress] = useState('');
+  const [contact, setContact] = useState('');
+  const fee = fulfilment === 'delivery' ? info.deliveryFeeKes || 0 : 0;
 
-  useEffect(() => { if (user && !mpesa) setMpesa(fmtPhone(user.phone)); }, [user]); // eslint-disable-line
+  useEffect(() => { if (user && !mpesa) { setMpesa(fmtPhone(user.phone)); setContact(fmtPhone(user.phone)); } }, [user]); // eslint-disable-line
 
   // After the M-Pesa prompt is sent, watch the order until it is paid
   useEffect(() => {
@@ -44,9 +48,12 @@ export default function Checkout() {
   const placeAndPay = () => run(async () => {
     setFailed(null); setSlow(false);
     let id = orderId;
-    setAmount(cart.total);
+    setAmount(cart.total + fee);
     if (!id) {
-      const { order } = await api('/orders/checkout', { method: 'POST' });
+      const { order } = await api('/orders/checkout', {
+        method: 'POST',
+        body: { fulfilment, delivery_address: address, delivery_phone: contact },
+      });
       id = order.id;
       setOrderId(id);
       await refresh();
@@ -101,7 +108,38 @@ export default function Checkout() {
           </section>
 
           <section className={`panel step ${user ? '' : 'step-off'}`}>
-            <h2><span className="step-n">2</span> Pay with M-Pesa</h2>
+            <h2><span className="step-n">2</span> How do you want to receive it?</h2>
+            {user && (
+              <>
+                <div className="choice">
+                  <label className={`choice-opt ${fulfilment === 'pickup' ? 'on' : ''}`}>
+                    <input type="radio" name="fulfilment" checked={fulfilment === 'pickup'} onChange={() => setFulfilment('pickup')} />
+                    <span><b>Pick up</b><small>Collect at {info.shopLocation} with the code we text you. Free.</small></span>
+                  </label>
+                  <label className={`choice-opt ${fulfilment === 'delivery' ? 'on' : ''}`}>
+                    <input type="radio" name="fulfilment" checked={fulfilment === 'delivery'} onChange={() => setFulfilment('delivery')} />
+                    <span><b>Delivery</b><small>We bring it to you. {info.deliveryFeeKes ? `Delivery fee ${kes(info.deliveryFeeKes)}.` : 'Free delivery.'}</small></span>
+                  </label>
+                </div>
+                {fulfilment === 'delivery' && (
+                  <>
+                    <label className="field">
+                      <span>Delivery address</span>
+                      <textarea rows="2" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Estate, street, landmark, town" required />
+                    </label>
+                    <label className="field">
+                      <span>Phone for the delivery</span>
+                      <input type="tel" value={contact} onChange={(e) => setContact(e.target.value)} />
+                      <small>We call this number to arrange the delivery.</small>
+                    </label>
+                  </>
+                )}
+              </>
+            )}
+          </section>
+
+          <section className={`panel step ${user ? '' : 'step-off'}`}>
+            <h2><span className="step-n">3</span> Pay with M-Pesa</h2>
             {user && (
               <>
                 <Err msg={error} />
@@ -110,17 +148,14 @@ export default function Checkout() {
                   <input type="tel" value={mpesa} onChange={(e) => setMpesa(e.target.value)} />
                   <small>You'll get a prompt on this phone to enter your PIN.</small>
                 </label>
-                <button className="btn btn-pay btn-block" onClick={placeAndPay} disabled={busy}>{busy ? 'Sending…' : `Pay ${kes(total)}`}</button>
+                <button className="btn btn-pay btn-block" onClick={placeAndPay} disabled={busy}>{busy ? 'Sending…' : `Pay ${kes(total + fee)}`}</button>
               </>
             )}
           </section>
 
-          <section className="panel step">
-            <h2><span className="step-n">3</span> Collect your order</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              We ship the whole batch after {date(period.closes_at, true)} and you collect at {info.shopLocation}. You get an SMS at each stage and a pickup code when it's ready.
-            </p>
-          </section>
+          <p className="small muted" style={{ margin: '4px 4px 0' }}>
+            We order the whole batch after {date(period.closes_at, true)}. You get an SMS when it is on the way and when it is ready{fulfilment === 'delivery' ? ' for delivery' : ', with your pickup code'}.
+          </p>
         </div>
 
         <aside className="panel summary">
@@ -135,7 +170,8 @@ export default function Checkout() {
               </div>
             </div>
           ))}
-          <div className="totals"><b>Total</b><span className="price num">{kes(total)}</span></div>
+          {fee > 0 && <div className="line"><span>Delivery</span><span className="num">{kes(fee)}</span></div>}
+          <div className="totals"><b>Total</b><span className="price num">{kes(total + fee)}</span></div>
           <p className="small muted" style={{ marginTop: 10 }}>Unpaid orders are cancelled when the round closes.</p>
         </aside>
       </div>

@@ -98,7 +98,7 @@ export async function setPeriodStatus(periodId, newStatus, { etaDate, note, acto
 
 async function paidOrdersForPeriod(periodId, client = pool) {
   const { rows } = await client.query(
-    `SELECT o.id, o.order_no, u.id AS user_id, u.phone
+    `SELECT o.id, o.order_no, o.fulfilment, o.delivery_address, o.delivery_phone, u.id AS user_id, u.phone
        FROM orders o JOIN users u ON u.id = o.user_id
       WHERE o.period_id = $1 AND o.payment_status = 'paid' AND o.collected_at IS NULL`,
     [periodId]
@@ -116,6 +116,13 @@ async function notifyShippingUpdate(period, status, etaOnly, note) {
     const msgs = [];
     await tx(async (c) => {
       for (const o of orders) {
+        if (o.fulfilment === 'delivery') {
+          msgs.push({
+            userId: o.user_id, phone: o.phone,
+            body: `${biz()}: Your order ${o.order_no} has arrived and will be delivered to ${o.delivery_address}. We will call ${displayPhone(o.delivery_phone || o.phone)} to arrange the delivery. No code is needed.`,
+          });
+          continue;
+        }
         const code = randomDigits(6);
         await c.query('UPDATE orders SET pickup_code_hash = $2 WHERE id = $1', [o.id, sha256(`${o.id}:${code}`)]);
         msgs.push({
@@ -135,6 +142,33 @@ async function notifyShippingUpdate(period, status, etaOnly, note) {
   else return;
   if (note) body += ` ${note}`;
   sendSmsLater(orders.map((o) => ({ userId: o.user_id, phone: o.phone, body })), `status_${status}`);
+}
+
+export async function markDelivered({ orderId, actorId }) {
+  const o = await one(
+    `SELECT o.*, u.phone, p.status AS period_status
+       FROM orders o JOIN users u ON u.id = o.user_id JOIN shipping_periods p ON p.id = o.period_id
+      WHERE o.id = $1`,
+    [orderId]
+  );
+  if (!o) throw new HttpError(404, 'Order not found');
+  if (o.fulfilment !== 'delivery') throw bad('This is a pickup order');
+  if (o.payment_status !== 'paid') throw bad('This order is not paid');
+  if (o.collected_at) throw bad('This order is already delivered');
+  if (o.period_status !== 'ready_for_collection') throw bad('The goods have not arrived yet. Mark the round ready first.');
+
+  const updated = await one(
+    `UPDATE orders SET delivered_at = now(), collected_at = now(), collected_by_name = 'Delivered', released_by = $2
+      WHERE id = $1 RETURNING *`,
+    [orderId, actorId]
+  );
+  await audit(actorId, 'order.delivered', 'order', orderId, {});
+  sendSmsLater(
+    { userId: o.user_id, phone: o.phone, body: `${biz()}: Order ${o.order_no} has been delivered. Thank you for shopping with us.` },
+    'delivered'
+  );
+  await completeIfAllCollected(o.period_id, actorId);
+  return updated;
 }
 
 // Once every paid order in a ready round is collected, the round is finished
@@ -282,6 +316,7 @@ export async function collectOrder({ orderNo, code, collectedByName, collectedBy
   if (!o) throw new HttpError(404, 'Order not found');
   if (o.payment_status !== 'paid') throw bad('This order is not paid');
   if (o.collected_at) throw bad(`Already collected on ${fmtDate(o.collected_at)} by ${o.collected_by_name}`);
+  if (o.fulfilment === 'delivery') throw bad('This is a delivery order. Mark it delivered from the Orders page.');
   if (!o.pickup_code_hash) throw bad('This order is not ready for collection yet');
   if (sha256(`${o.id}:${String(code || '').trim()}`) !== o.pickup_code_hash) throw bad('Wrong pickup code');
   if (!collectedByName) throw bad('Enter the name of the person collecting');

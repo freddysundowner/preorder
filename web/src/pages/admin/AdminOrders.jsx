@@ -23,6 +23,11 @@ function OrderDrawer({ id, onClose, onChanged }) {
     run(async () => { await api(`/admin/orders/${id}/refunded`, { method: 'POST', body: {} }); await reload(); onChanged(); });
   };
 
+  const markDelivered = async () => {
+    if (!(await ask('Has this order been delivered to the customer?\n\nThey will get a confirmation SMS.', { confirmLabel: 'Mark delivered' }))) return;
+    run(async () => { await api(`/admin/orders/${id}/delivered`, { method: 'POST', body: {} }); await reload(); onChanged(); });
+  };
+
   return (
     <>
       <div className="drawer-bg" onClick={onClose} />
@@ -45,8 +50,18 @@ function OrderDrawer({ id, onClose, onChanged }) {
                   <dt>Total</dt><dd className="num">{kes(o.total_kes)}</dd>
                   <dt>Paid</dt><dd className="num">{kes(o.paid_kes)}</dd>
                   {o.refund_due_kes > 0 && <><dt>Refund due</dt><dd className="num"><b>{kes(o.refund_due_kes)}</b></dd></>}
-                  {o.collected_at && <><dt>Collected</dt><dd>{date(o.collected_at, true)} by {o.collected_by_name}{o.collected_by_phone ? `, ${phone(o.collected_by_phone)}` : ''}</dd></>}
+                  <dt>Receiving</dt>
+                  <dd>{o.fulfilment === 'delivery'
+                    ? <>Delivery to {o.delivery_address}<div className="small muted">Call {phone(o.delivery_phone || o.customer_phone)}{o.delivery_fee_kes > 0 ? ` · fee ${kes(o.delivery_fee_kes)}` : ''}</div></>
+                    : 'Pickup at the shop'}</dd>
+                  {o.delivered_at && <><dt>Delivered</dt><dd>{date(o.delivered_at, true)}</dd></>}
+                  {o.collected_at && !o.delivered_at && <><dt>Collected</dt><dd>{date(o.collected_at, true)} by {o.collected_by_name}{o.collected_by_phone ? `, ${phone(o.collected_by_phone)}` : ''}</dd></>}
                 </dl>
+                {o.fulfilment === 'delivery' && o.payment_status === 'paid' && !o.collected_at && (
+                  o.period_status === 'ready_for_collection'
+                    ? <button className="btn btn-sm" style={{ marginTop: 14 }} onClick={markDelivered} disabled={busy}>Mark delivered</button>
+                    : <p className="small muted" style={{ marginBottom: 0 }}>You can mark it delivered once the round is ready.</p>
+                )}
                 {o.refund_due_kes > 0 && user.role === 'admin' && (
                   <button className="btn btn-sm" style={{ marginTop: 14 }} onClick={markRefunded} disabled={busy}>Mark refund sent</button>
                 )}
@@ -105,7 +120,8 @@ export default function AdminOrders() {
             <select value={status} onChange={(e) => update('status', e.target.value)}>
               <option value="">Any</option>
               {Object.entries(PAYMENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              <option value="collected">Collected</option>
+              <option value="collected">Collected or delivered</option>
+              <option value="to_deliver">Deliveries to make</option>
             </select>
           </label>
           {periods.data?.periods && (
@@ -127,7 +143,7 @@ export default function AdminOrders() {
                 <tbody>
                   {data.orders.map((o) => (
                     <tr key={o.id} className="clickable" onClick={() => setOpenId(o.id)}>
-                      <td><b>{o.order_no}</b><div className="small muted">{date(o.created_at)}</div></td>
+                      <td><b>{o.order_no}</b>{o.fulfilment === 'delivery' && <> <span className="badge badge-blue">Delivery</span></>}<div className="small muted">{date(o.created_at)}</div></td>
                       <td>{o.customer_name || '—'}<div className="small muted">{phone(o.customer_phone)}</div></td>
                       <td className="small">{o.period_name}<div className="muted">{STAGE_LABEL[o.period_status]}</div></td>
                       <td><PayBadge order={o} />{o.refund_due_kes > 0 && <div className="small muted">Refund {kes(o.refund_due_kes)}</div>}</td>

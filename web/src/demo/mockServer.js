@@ -296,8 +296,11 @@ function setPeriodStatus(p, newStatus, { etaDate, note, actorId }) {
   const orders = paidActiveOrders(p.id);
   if (newStatus === 'ready_for_collection') {
     sms(orders.map((o) => {
-      o.pickup_code = digits(6);
       const u = userById(o.user_id);
+      if (o.fulfilment === 'delivery') {
+        return { userId: u.id, phone: u.phone, body: `${BIZ}: Your order ${o.order_no} has arrived and will be delivered to ${o.delivery_address}. We will call ${displayPhone(o.delivery_phone || u.phone)} to arrange the delivery. No code is needed.` };
+      }
+      o.pickup_code = digits(6);
       return { userId: u.id, phone: u.phone, body: `${BIZ}: Your order ${o.order_no} is ready for collection at ${SHOP}. Pickup code: ${o.pickup_code}. Show this code when collecting.` };
     }), 'ready_for_collection');
     return;
@@ -356,12 +359,22 @@ function runJobs() {
 }
 
 // ---------- shaping responses ----------
+const DELIVERY_FEE = 300;
+const isReady = (o, p) => (o.fulfilment === 'delivery' ? ['ready_for_collection', 'completed'].includes(p.status) : !!o.pickup_code);
+
+function completeIfAllCollected(p, actorId) {
+  if (p.status === 'ready_for_collection' && !db.orders.some((x) => x.period_id === p.id && x.payment_status === 'paid' && !x.collected_at)) {
+    p.status = 'completed';
+    insert('events', { period_id: p.id, status: 'completed', note: 'All orders collected', eta_date: p.eta_date || null, created_by: actorId, created_at: now() });
+  }
+}
+
 function orderDetail(o) {
   const p = periodById(o.period_id);
   const u = userById(o.user_id);
   const { pickup_code, ...rest } = o;
   return {
-    ...rest, ready: !!pickup_code, period_name: p.name, period_status: p.status, eta_date: p.eta_date, closes_at: p.closes_at,
+    ...rest, ready: isReady(o, p), period_name: p.name, period_status: p.status, eta_date: p.eta_date, closes_at: p.closes_at,
     customer_name: u.name, customer_phone: u.phone,
     items: itemsOf(o.id),
     payments: db.payments.filter((x) => x.order_id === o.id).slice().reverse(),
@@ -391,7 +404,7 @@ const route = (method, pattern, opts, fn) => {
   routes.push({ method, re, keys, fn, ...opts });
 };
 
-route('GET', '/info', { open: true }, () => ({ businessName: BIZ, shopLocation: SHOP, collectionTitle: 'Available for preorder', storeHeadline: 'Preorder now. Collect when it lands.', storeTagline: 'Pay with M-Pesa, follow your order by SMS, and pick it up with a code.', paybillNumber: PAYBILL, mpesaMode: 'mock' }));
+route('GET', '/info', { open: true }, () => ({ businessName: BIZ, shopLocation: SHOP, collectionTitle: 'Available for preorder', storeHeadline: 'Preorder now. Collect when it lands.', storeTagline: 'Pay with M-Pesa, follow your order by SMS, and pick it up with a code.', paybillNumber: PAYBILL, mpesaMode: 'mock', deliveryFeeKes: DELIVERY_FEE }));
 
 // auth
 route('POST', '/auth/request-otp', { open: true }, ({ body }) => {
@@ -450,12 +463,18 @@ route('POST', '/cart/items', ({ user, body }) => {
   else insert('cart', { user_id: user.id, product_id: productId, qty });
   return cartFor(user.id);
 });
-route('POST', '/orders/checkout', ({ user }) => {
+route('POST', '/orders/checkout', ({ user, body }) => {
   const cart = cartFor(user.id);
   if (!cart.period) throw bad('Orders are closed right now');
   if (!cart.items.length) throw bad('Your cart is empty');
+  const delivery = body?.fulfilment === 'delivery';
+  const address = String(body?.delivery_address || '').trim();
+  if (delivery && address.length < 5) throw bad('Enter your delivery address');
+  const fee = delivery ? DELIVERY_FEE : 0;
   const o = insert('orders', {
-    order_no: `PO${db.orderSeq++}`, user_id: user.id, period_id: cart.period.id, total_kes: cart.total, paid_kes: 0,
+    order_no: `PO${db.orderSeq++}`, user_id: user.id, period_id: cart.period.id, total_kes: cart.total + fee, paid_kes: 0,
+    fulfilment: delivery ? 'delivery' : 'pickup', delivery_address: delivery ? address : null,
+    delivery_phone: delivery ? normalizePhone(body.delivery_phone) || user.phone : null, delivery_fee_kes: fee, delivered_at: null,
     refund_due_kes: 0, payment_status: 'unpaid', pickup_code: null, collected_at: null, collected_by_name: null,
     collected_by_phone: null, released_by: null, paid_at: null, created_at: now(),
   });
@@ -471,7 +490,7 @@ route('GET', '/orders', ({ user }) => ({
   orders: db.orders.filter((o) => o.user_id === user.id).slice().reverse().map((o) => {
     const p = periodById(o.period_id);
     const { pickup_code, ...rest } = o;
-    return { ...rest, ready: !!pickup_code, period_name: p.name, period_status: p.status, eta_date: p.eta_date, closes_at: p.closes_at,
+    return { ...rest, ready: isReady(o, p), period_name: p.name, period_status: p.status, eta_date: p.eta_date, closes_at: p.closes_at,
       item_count: itemsOf(o.id).filter((i) => i.status === 'active').length };
   }),
 }));
@@ -729,14 +748,16 @@ route('GET', '/admin/orders', S, ({ query }) => {
     orders: db.orders.slice().reverse().filter((o) => {
       const u = userById(o.user_id);
       if (query.periodId && o.period_id !== int(query.periodId)) return false;
-      if (query.status && !(o.payment_status === query.status || (query.status === 'collected' && o.collected_at))) return false;
+      if (query.status && !(o.payment_status === query.status || (query.status === 'collected' && o.collected_at)
+        || (query.status === 'to_deliver' && o.fulfilment === 'delivery' && o.payment_status === 'paid' && !o.collected_at && periodById(o.period_id).status === 'ready_for_collection'))) return false;
       if (q && !(o.order_no.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || u.phone === ph)) return false;
       return true;
     }).map((o) => {
       const u = userById(o.user_id); const p = periodById(o.period_id);
       return { id: o.id, order_no: o.order_no, total_kes: o.total_kes, paid_kes: o.paid_kes, refund_due_kes: o.refund_due_kes,
         payment_status: o.payment_status, created_at: o.created_at, collected_at: o.collected_at, collected_by_name: o.collected_by_name,
-        ready: !!o.pickup_code, customer_name: u.name, customer_phone: u.phone, period_name: p.name, period_status: p.status };
+        fulfilment: o.fulfilment || 'pickup', delivery_address: o.delivery_address || null, delivered_at: o.delivered_at || null,
+        customer_name: u.name, customer_phone: u.phone, period_name: p.name, period_status: p.status };
     }),
   };
 });
@@ -754,12 +775,28 @@ route('POST', '/admin/orders/:id/refunded', A, ({ user, params }) => {
   return { order: o };
 });
 
+route('POST', '/admin/orders/:id/delivered', S, ({ user, params }) => {
+  const o = orderById(int(params.id));
+  if (!o) throw notFound('Order not found');
+  const p = periodById(o.period_id);
+  if (o.fulfilment !== 'delivery') throw bad('This is a pickup order');
+  if (o.payment_status !== 'paid') throw bad('This order is not paid');
+  if (o.collected_at) throw bad('This order is already delivered');
+  if (p.status !== 'ready_for_collection') throw bad('The goods have not arrived yet. Mark the round ready first.');
+  Object.assign(o, { delivered_at: now(), collected_at: now(), collected_by_name: 'Delivered', released_by: user.id });
+  audit(user.id, 'order.delivered', 'order', o.id, {});
+  const c = userById(o.user_id);
+  sms({ userId: c.id, phone: c.phone, body: `${BIZ}: Order ${o.order_no} has been delivered. Thank you for shopping with us.` }, 'delivered');
+  completeIfAllCollected(p, user.id);
+  return { order: o };
+});
+
 route('GET', '/admin/collections/lookup', S, ({ query }) => {
   const q = String(query.q || '').trim();
   if (!q) return { orders: [] };
   const ph = normalizePhone(q);
   return {
-    orders: db.orders.filter((o) => o.payment_status === 'paid' && (o.order_no === q.toUpperCase() || userById(o.user_id).phone === ph))
+    orders: db.orders.filter((o) => o.payment_status === 'paid' && o.fulfilment !== 'delivery' && (o.order_no === q.toUpperCase() || userById(o.user_id).phone === ph))
       .slice().reverse().map((o) => {
         const u = userById(o.user_id);
         return { id: o.id, order_no: o.order_no, total_kes: o.total_kes, payment_status: o.payment_status, collected_at: o.collected_at,
@@ -773,6 +810,7 @@ route('POST', '/admin/collections', S, ({ user, body }) => {
   const o = db.orders.find((x) => x.order_no === String(body.order_no || '').trim().toUpperCase());
   if (!o) throw notFound('Order not found');
   if (o.payment_status !== 'paid') throw bad('This order is not paid');
+  if (o.fulfilment === 'delivery') throw bad('This is a delivery order. Mark it delivered from the Orders page.');
   if (o.collected_at) throw bad(`Already collected on ${fmtDate(o.collected_at)} by ${o.collected_by_name}`);
   if (!o.pickup_code) throw bad('This order is not ready for collection yet');
   if (String(body.code || '').trim() !== o.pickup_code) throw bad('Wrong pickup code');
@@ -781,11 +819,7 @@ route('POST', '/admin/collections', S, ({ user, body }) => {
   const ph = normalizePhone(body.collected_by_phone) || null;
   Object.assign(o, { collected_at: now(), collected_by_name: name, collected_by_phone: ph, released_by: user.id });
   audit(user.id, 'order.collected', 'order', o.id, { name });
-  const pp = db.periods.find((x) => x.id === o.period_id);
-  if (pp.status === 'ready_for_collection' && !db.orders.some((x) => x.period_id === pp.id && x.payment_status === 'paid' && !x.collected_at)) {
-    pp.status = 'completed';
-    insert('events', { period_id: pp.id, status: 'completed', note: 'All orders collected', eta_date: pp.eta_date || null, created_by: user.id, created_at: now() });
-  }
+  completeIfAllCollected(periodById(o.period_id), user.id);
   const c = userById(o.user_id);
   sms({ userId: c.id, phone: c.phone, body: `${BIZ}: Order ${o.order_no} was collected by ${ph ? `${name}, ${displayPhone(ph)}` : name} on ${fmtDate(o.collected_at)}. Thank you for shopping with us.` }, 'collected');
   return { order: o };

@@ -7,7 +7,7 @@ import { UPLOAD_DIR } from '../uploads.js';
 import { one, many, query, tx, audit } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import {
-  setPeriodStatus, sendClosingReminder, cancelProduct, collectOrder, applyPayment, notifyPeriodOpened,
+  setPeriodStatus, markDelivered, sendClosingReminder, cancelProduct, collectOrder, applyPayment, notifyPeriodOpened,
 } from '../services/orders.js';
 import { settingsForAdmin, saveSettings, callbackUrls } from '../services/settings.js';
 import { sendSms } from '../services/sms.js';
@@ -345,11 +345,13 @@ r.get('/orders', staff, ah(async (req, res) => {
   const phone = normalizePhone(q);
   const orders = await many(
     `SELECT o.id, o.order_no, o.total_kes, o.paid_kes, o.refund_due_kes, o.payment_status, o.created_at,
-            o.collected_at, o.collected_by_name, (o.pickup_code_hash IS NOT NULL) AS ready,
+            o.collected_at, o.collected_by_name, o.fulfilment, o.delivery_address, o.delivered_at,
             u.name AS customer_name, u.phone AS customer_phone, p.name AS period_name, p.status AS period_status
        FROM orders o JOIN users u ON u.id = o.user_id JOIN shipping_periods p ON p.id = o.period_id
       WHERE ($1::int IS NULL OR o.period_id = $1)
-        AND ($2::text IS NULL OR o.payment_status = $2 OR ($2 = 'collected' AND o.collected_at IS NOT NULL))
+        AND ($2::text IS NULL OR o.payment_status = $2 OR ($2 = 'collected' AND o.collected_at IS NOT NULL)
+             OR ($2 = 'to_deliver' AND o.fulfilment = 'delivery' AND o.payment_status = 'paid' AND o.collected_at IS NULL
+                 AND p.status = 'ready_for_collection'))
         AND ($3 = '' OR o.order_no ILIKE '%' || $3 || '%' OR u.name ILIKE '%' || $3 || '%' OR u.phone = $4)
       ORDER BY o.id DESC LIMIT 500`,
     [periodId, status, q, phone || '']
@@ -375,6 +377,11 @@ r.post('/orders/:id/refunded', admin, ah(async (req, res) => {
   res.json({ order: o });
 }));
 
+r.post('/orders/:id/delivered', staff, ah(async (req, res) => {
+  const order = await markDelivered({ orderId: int(req.params.id), actorId: req.user.id });
+  res.json({ order });
+}));
+
 // ---------- Collection desk ----------
 r.get('/collections/lookup', staff, ah(async (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -387,7 +394,7 @@ r.get('/collections/lookup', staff, ah(async (req, res) => {
             (SELECT json_agg(json_build_object('name', oi.product_name, 'qty', oi.qty) ORDER BY oi.id)
                FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'active') AS items
        FROM orders o JOIN users u ON u.id = o.user_id JOIN shipping_periods p ON p.id = o.period_id
-      WHERE o.payment_status = 'paid' AND (o.order_no = upper($1) OR u.phone = $2)
+      WHERE o.payment_status = 'paid' AND o.fulfilment = 'pickup' AND (o.order_no = upper($1) OR u.phone = $2)
       ORDER BY o.id DESC LIMIT 20`,
     [q, phone || '']
   );

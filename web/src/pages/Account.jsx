@@ -9,11 +9,11 @@ import AuthForm from '../components/AuthForm.jsx';
 import Tracker from '../components/Tracker.jsx';
 
 function status(o) {
-  if (o.collected_at) return { text: 'Collected', tone: 'ok' };
+  if (o.collected_at) return { text: o.fulfilment === 'delivery' ? 'Delivered' : 'Collected', tone: 'ok' };
   if (['cancelled', 'refunded'].includes(o.payment_status)) return { text: 'Cancelled', tone: 'bad' };
   if (o.payment_status === 'refund_pending') return { text: 'Cancelled, refund on the way', tone: 'bad' };
   if (o.payment_status === 'unpaid') return { text: 'Waiting for payment', tone: 'warn' };
-  if (o.ready) return { text: 'Ready for collection', tone: 'ok' };
+  if (o.ready) return { text: o.fulfilment === 'delivery' ? 'Arriving, we will call you' : 'Ready for collection', tone: 'ok' };
   if (o.period_status === 'open') return { text: 'Confirmed', tone: 'blue' };
   return { text: STAGE_LABEL[o.period_status] || 'Confirmed', tone: 'blue' };
 }
